@@ -9,12 +9,6 @@ terraform {
   }
 }
 
-variable "http_port" {
-  description = "HTTP port for the web server"
-  type        = number
-  default     = 8080
-}
-
 provider "aws" {
   region = "eu-central-1"
 }
@@ -60,9 +54,4 @@ resource "aws_instance" "example" {
     systemctl start httpd
     systemctl enable httpd
     EOF
-}
-
-output "public_ip" {
-  description = "Public IP address of the EC2 instance"
-  value       = aws_instance.example.public_ip
 }
