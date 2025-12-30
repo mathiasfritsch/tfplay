@@ -9,18 +9,24 @@ terraform {
   }
 }
 
+variable "http_port" {
+  description = "HTTP port for the web server"
+  type        = number
+  default     = 8080
+}
+
 provider "aws" {
   region = "eu-central-1"
 }
 
 resource "aws_security_group" "web_server" {
   name        = "web-server-sg"
-  description = "Allow inbound traffic on port 8080"
+  description = "Allow inbound traffic on port ${var.http_port}"
 
   ingress {
-    description = "HTTP on 8080"
-    from_port   = 8080
-    to_port     = 8080
+    description = "HTTP on ${var.http_port}"
+    from_port   = var.http_port
+    to_port     = var.http_port
     protocol    = "tcp"
     cidr_blocks = ["0.0.0.0/0"]
   }
@@ -49,7 +55,7 @@ resource "aws_instance" "example" {
     #!/bin/bash
     yum update -y
     yum install -y httpd
-    echo "Listen 8080" >> /etc/httpd/conf/httpd.conf
+    echo "Listen ${var.http_port}" >> /etc/httpd/conf/httpd.conf
     echo "hi there" > /var/www/html/index.html
     systemctl start httpd
     systemctl enable httpd
