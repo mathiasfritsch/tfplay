@@ -1,4 +1,4 @@
-output "public_ip" {
-  description = "Public IP address of the EC2 instance"
-  value       = aws_instance.example.public_ip
+output "asg_name" {
+  description = "Name of the Auto Scaling Group"
+  value       = aws_autoscaling_group.web_server.name
 }
