@@ -1,3 +1,35 @@
-terraform.tfstate
-terraform.tfstate.backup
-.terraform/providers/registry.terraform.io/hashicorp/aws/5.100.0/windows_amd64/terraform-provider-aws_v5.100.0_x5.exe
+# Local .terraform directories
+**/.terraform/*
+
+# .tfstate files contain sensitive infrastructure state
+*.tfstate
+*.tfstate.*
+
+# Crash log files
+crash.log
+crash.*.log
+
+# Exclude all .tfvars files, which may contain sensitive data
+*.tfvars
+*.tfvars.json
+
+# Ignore override files as they are usually used to override resources locally
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+
+# Ignore CLI configuration files with credentials
+.terraformrc
+terraform.rc
+
+# Ignore plan files which may contain sensitive data
+*.tfplan
+
+# Ignore any .pem or .key files
+*.pem
+*.key
+
+# Ignore environment files
+.env
+.env.*
