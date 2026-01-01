@@ -13,6 +13,11 @@ provider "aws" {
   region = "eu-central-1"
 }
 
+resource "aws_key_pair" "ec2_key" {
+  key_name   = "ec2-key"
+  public_key = file("${path.module}/ec2-key.pub")
+}
+
 resource "aws_security_group" "web_server" {
   name        = "web-server-sg"
   description = "Allow inbound traffic on port ${var.http_port}"
@@ -21,6 +26,14 @@ resource "aws_security_group" "web_server" {
     description = "HTTP on ${var.http_port}"
     from_port   = var.http_port
     to_port     = var.http_port
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  ingress {
+    description = "SSH"
+    from_port   = 22
+    to_port     = 22
     protocol    = "tcp"
     cidr_blocks = ["0.0.0.0/0"]
   }
@@ -40,6 +53,7 @@ resource "aws_security_group" "web_server" {
 resource "aws_instance" "example" {
   ami           = "ami-0f2367292005b3bad"
   instance_type = "t2.micro"
+  key_name      = aws_key_pair.ec2_key.key_name
   vpc_security_group_ids = [aws_security_group.web_server.id]
   
   tags = {
