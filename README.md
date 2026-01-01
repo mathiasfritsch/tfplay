@@ -46,25 +46,34 @@ This Terraform configuration creates a highly available, scalable web server inf
 - **Inbound Rules**: Allows HTTP traffic on port 80 from anywhere (0.0.0.0/0)
 - **Outbound Rules**: Allows all outbound traffic
 
-### 2. Web Server Security Group (`aws_security_group.web_server`)
+### 2. SSH Key Pair (`aws_key_pair.ec2_key`)
+- **Name**: `ec2-ssh-key`
+- **Purpose**: Enables SSH access to EC2 instances
+- **Key File**: `ec2-key` (private key, git-ignored)
+- **Public Key**: `ec2-key.pub`
+
+### 3. Web Server Security Group (`aws_security_group.web_server`)
 - **Name**: `web-server-sg`
 - **Purpose**: Controls network access to the web servers
-- **Inbound Rules**: Allows HTTP traffic on port 8080 from ALB security group only
+- **Inbound Rules**: 
+  - Allows HTTP traffic on port 8080 from ALB security group only
+  - Allows SSH traffic on port 22 from your IP address only
 - **Outbound Rules**: Allows all outbound traffic
 
-### 3. Additional Subnets (`aws_subnet.additional_1`, `aws_subnet.additional_2`)
+### 4. Additional Subnets (`aws_subnet.additional_1`, `aws_subnet.additional_2`)
 - **Purpose**: Ensures multi-AZ deployment for high availability
 - **CIDR Blocks**: 172.31.48.0/20 and 172.31.64.0/20
 - **Availability Zones**: Distributed across eu-central-1a, eu-central-1b, eu-central-1c
 - **Public IPs**: Enabled for NAT gateway compatibility
 
-### 4. Launch Template (`aws_launch_template.web_server`)
+### 5. Launch Template (`aws_launch_template.web_server`)
 - **AMI**: Amazon Linux 2 (ami-0f2367292005b3bad)
 - **Instance Type**: t2.micro (Free Tier eligible)
+- **SSH Key**: Uses ec2-ssh-key for SSH access
 - **User Data**: Installs and configures Apache httpd to listen on port 8080
 - **Lifecycle**: `create_before_destroy = true` ensures new template is created before old one is destroyed
 
-### 5. Target Group (`aws_lb_target_group.web_server`)
+### 6. Target Group (`aws_lb_target_group.web_server`)
 - **Name**: `web-server-tg`
 - **Port**: 8080
 - **Protocol**: HTTP
@@ -75,19 +84,19 @@ This Terraform configuration creates a highly available, scalable web server inf
   - Unhealthy threshold: 2
   - Timeout: 5 seconds
 
-### 6. Application Load Balancer (`aws_lb.web_server`)
+### 7. Application Load Balancer (`aws_lb.web_server`)
 - **Name**: `web-server-alb`
 - **Type**: Application Load Balancer
 - **Scheme**: Internet-facing
 - **Subnets**: Deployed across 3 availability zones
 - **Security**: Protected by ALB security group
 
-### 7. Load Balancer Listener (`aws_lb_listener.web_server`)
+### 8. Load Balancer Listener (`aws_lb_listener.web_server`)
 - **Port**: 80
 - **Protocol**: HTTP
 - **Action**: Forwards traffic to target group on port 8080
 
-### 8. Auto Scaling Group (`aws_autoscaling_group.web_server`)
+### 9. Auto Scaling Group (`aws_autoscaling_group.web_server`)
 - **Name**: `web-server-asg`
 - **Min Size**: 2 instances
 - **Max Size**: 4 instances
@@ -97,7 +106,7 @@ This Terraform configuration creates a highly available, scalable web server inf
 - **Target Group**: Automatically registers/deregisters instances
 - **Lifecycle**: `create_before_destroy = true` enables zero-downtime updates
 
-### 9. Data Sources
+### 10. Data Sources
 - **aws_vpc.default**: Retrieves the default VPC
 - **aws_availability_zones.available**: Gets available AZs in the region
 - **aws_subnets.default**: Retrieves default subnets in the VPC
@@ -110,6 +119,7 @@ This Terraform configuration creates a highly available, scalable web server inf
 ### Outputs (outputs.tf)
 - `asg_name`: Name of the Auto Scaling Group
 - `alb_dns_name`: DNS name of the Application Load Balancer (use this to access your application)
+- `ssh_connection_info`: Instructions for SSH access to instances
 
 ## Web Server Details
 
@@ -150,20 +160,51 @@ terraform destroy
 
 ## Access
 
-Once deployed, access the web application through the Application Load Balancer:
+### Web Application Access
+
+Access the web application through the Application Load Balancer:
 
 1. Get the ALB DNS name: `terraform output alb_dns_name`
 2. Access via: `http://<alb-dns-name>`
 
 The load balancer will automatically distribute traffic across healthy instances in multiple availability zones.
 
-**Note**: Instances are not directly accessible from the internet. All traffic must go through the ALB on port 80, which then routes to instances on port 8080.
+### SSH Access to EC2 Instances
+
+Before first deployment, generate SSH key pair:
+```powershell
+ssh-keygen -t rsa -b 4096 -f ec2-key -N ""
+```
+
+To connect to an instance:
+```powershell
+# Fix key permissions (Windows)
+icacls ec2-key /inheritance:r
+icacls ec2-key /grant:r "$($env:USERNAME):(R)"
+
+# Connect via SSH
+ssh -i ec2-key ec2-user@<instance-public-ip>
+```
+
+**Security Notes**:
+- SSH access is restricted to your current IP address
+- The private key file (`ec2-key`) is excluded from git via `.gitignore`
+- Never commit private keys or share them publicly
 
 ## Requirements
 
 - Terraform >= 1.0.0, < 2.0.0
 - AWS Provider ~> 5.0
 - AWS credentials configured (default profile with eu-central-1 region)
+- SSH key pair (`ec2-key` and `ec2-key.pub`) in project directory
 
+## Security Features
 
-## Next task: create a keypair for acessing the instances and add some logging
+- **.gitignore**: Configured to prevent committing sensitive files:
+  - State files (*.tfstate) containing infrastructure secrets
+  - Variable files (*.tfvars) with credentials
+  - Private keys (*.pem, *.key)
+  - Environment files (.env)
+  - Terraform CLI config files with tokens
+- **SSH Access**: Restricted to your IP address only
+- **Web Traffic**: Only accessible through ALB, instances not directly exposed

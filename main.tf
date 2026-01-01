@@ -13,6 +13,15 @@ provider "aws" {
   region = "eu-central-1"
 }
 
+resource "aws_key_pair" "ec2_key" {
+  key_name   = "ec2-ssh-key"
+  public_key = file("ec2-key.pub")
+
+  tags = {
+    Name = "ec2-ssh-key"
+  }
+}
+
 resource "aws_security_group" "alb" {
   name        = "alb-sg"
   description = "Allow inbound HTTP traffic on port 80"
@@ -47,6 +56,14 @@ resource "aws_security_group" "web_server" {
     to_port         = var.http_port
     protocol        = "tcp"
     security_groups = [aws_security_group.alb.id]
+  }
+
+  ingress {
+    description = "SSH"
+    from_port   = 22
+    to_port     = 22
+    protocol    = "tcp"
+    cidr_blocks = ["yourip"]  # Restricted to your current IP
   }
 
   egress {
@@ -113,6 +130,7 @@ resource "aws_launch_template" "web_server" {
   name_prefix   = "web-server-"
   image_id      = "ami-0f2367292005b3bad"
   instance_type = "t2.micro"
+  key_name      = aws_key_pair.ec2_key.key_name
 
   vpc_security_group_ids = [aws_security_group.web_server.id]
 
