@@ -48,14 +48,50 @@ resource "aws_instance" "example" {
   tags = {
     Name ="someserver"
   }
+  
+  provisioner "file" {
+    source      = "${path.module}/Program.cs"
+    destination = "/tmp/Program.cs"
+    
+    connection {
+      type        = "ssh"
+      user        = "ec2-user"
+      private_key = file("${path.module}/ec2-key")
+      host        = self.public_ip
+    }
+  }
+  
+  provisioner "file" {
+    source      = "${path.module}/webapi.csproj"
+    destination = "/tmp/webapi.csproj"
+    
+    connection {
+      type        = "ssh"
+      user        = "ec2-user"
+      private_key = file("${path.module}/ec2-key")
+      host        = self.public_ip
+    }
+  }
+  
   user_data = <<-EOF
     #!/bin/bash
-    yum update -y
-    yum install -y httpd
-    echo "Listen ${var.http_port}" >> /etc/httpd/conf/httpd.conf
-    echo "hi there" > /var/www/html/index.html
-    systemctl start httpd
-    systemctl enable httpd
+    # Install .NET 10 SDK
+    sudo rpm -Uvh https://packages.microsoft.com/config/centos/7/packages-microsoft-prod.rpm
+    sudo yum install -y dotnet-sdk-10.0
+    
+    # Wait for files to be provisioned
+    sleep 10
+    
+    # Create app directory
+    mkdir -p /home/ec2-user/webapi
+    cp /tmp/Program.cs /home/ec2-user/webapi/
+    cp /tmp/webapi.csproj /home/ec2-user/webapi/
+    chown -R ec2-user:ec2-user /home/ec2-user/webapi
+    
+    # Build and run the app
+    cd /home/ec2-user/webapi
+    sudo -u ec2-user dotnet build
+    sudo -u ec2-user nohup dotnet run > /var/log/webapi.log 2>&1 &
     EOF
 }
 
