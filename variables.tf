@@ -4,15 +4,16 @@ variable "http_port" {
   default     = 8080
 }
 
-# variable "db_username" {
-#   description = "Database administrator username"
-#   type        = string
-#   default     = "dbadmin"
-#   sensitive   = true
-# }
+ variable "db_username" {
+   description = "Database administrator username"
+   type        = string
+   default     = "dbadmin"
+   sensitive   = true
+ }
 
-# variable "db_password" {
-#   description = "Database administrator password"
-#   type        = string
-#   sensitive   = true
-# }
+ variable "db_password" {
+   description = "Database administrator password"
+   type        = string
+   default     = "ChangeMe123!"
+   sensitive   = true
+ }

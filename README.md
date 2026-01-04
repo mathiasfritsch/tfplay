@@ -6,10 +6,14 @@ This project provisions an AWS EC2 instance using Terraform and deploys a simple
 
 The infrastructure includes:
 - AWS EC2 instance (t2.micro) running Amazon Linux 2023
-- Security group allowing HTTP traffic on port 8080 and SSH on port 22
+- AWS RDS PostgreSQL database (db.t3.micro) with products catalog
+- IAM authentication for secure database access (no hardcoded passwords)
+- IAM roles and policies for EC2 to RDS connectivity
+- Security groups for web server and database access
 - SSH key pair for secure access
-- Automated deployment of a .NET 9 Web API
+- Automated deployment of a .NET 9 Web API with database connectivity
 - Latest AMI automatically retrieved from AWS Systems Manager Parameter Store
+- Database initialization with products table and sample data
 
 ## Prerequisites
 
@@ -133,11 +137,25 @@ curl http://<PUBLIC_IP>:8080/health
 # Root endpoint
 curl http://<PUBLIC_IP>:8080/
 
-# Sample data endpoint
-curl http://<PUBLIC_IP>:8080/api/data
+# Get all products from database
+curl http://<PUBLIC_IP>:8080/products
+
+# Add a new product
+curl -X POST http://<PUBLIC_IP>:8080/products \
+  -H "Content-Type: application/json" \
+  -d '{"name": "Headphones"}'
 ```
 
 Or open in a browser: `http://<PUBLIC_IP>:8080`
+
+### API Endpoints
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/` | GET | Welcome message |
+| `/health` | GET | Health check with timestamp |
+| `/products` | GET | List all products from database |
+| `/products` | POST | Add a new product (JSON body: `{"name": "Product Name"}`) |
 
 ## Project Structure
 
@@ -145,19 +163,53 @@ Or open in a browser: `http://<PUBLIC_IP>:8080`
 .
 ├── main.tf              # Main infrastructure configuration
 ├── variables.tf         # Variable definitions
-├── outputs.tf           # Output values (e.g., public IP)
+├── outputs.tf           # Output values (public IP, DB endpoint)
 ├── terraform.tf         # Terraform and provider settings
 ├── ec2-key              # Private SSH key (DO NOT COMMIT TO GIT)
 ├── ec2-key.pub          # Public SSH key
-├── Program.cs           # .NET Web API application
-├── webapi.csproj        # .NET project file
+├── Program.cs           # .NET Web API with IAM auth for PostgreSQL
+├── webapi.csproj        # .NET project with Npgsql and AWS SDK
+├── init-db.sql          # Database initialization script
 └── README.md            # This file
 ```
 
+## Infrastructure Components
+
+### EC2 Instance
+- **Type**: t2.micro
+- **OS**: Amazon Linux 2023 (latest AMI)
+- **Software**: .NET 9 SDK, PostgreSQL client
+- **Ports**: 8080 (HTTP), 22 (SSH)
+- **IAM Role**: Attached with RDS IAM authentication permissions
+
+### RDS PostgreSQL Database
+- **Engine**: PostgreSQL 16
+- **Instance**: db.t3.micro
+- **Database**: catalogdb
+- **Table**: products (id SERIAL, name VARCHAR, created_at TIMESTAMP)
+- **Storage**: 20 GB GP2
+- **Authentication**: IAM database authentication enabled
+- **Access**: From EC2 instance only (security group restricted)
+
+### Security Features
+- **IAM Authentication**: Database access uses temporary IAM tokens instead of static passwords
+- **No Hardcoded Credentials**: Application retrieves auth tokens dynamically from AWS
+- **SSL/TLS**: Database connections use SSL encryption
+- **Least Privilege**: EC2 role has only `rds-db:connect` permission for specific database user
+
 ## Configuration Variables
 
-| Variable | Description | Default |
-|----------|-------------|---------|
+| Variable | Description | Default | Required |
+|----------|-------------|---------|----------|
+| `http_port` | HTTP port for the web server | 8080 | No |
+| `db_username` | Database administrator username | dbadmin | No |
+| `db_password` | Database admin password (only for initial setup) | - | **Yes** |
+
+**Note**: The password is only used for initial database setup and creating the IAM-enabled user. After deployment, the application uses IAM authentication with temporary tokens.
+
+```bash
+export TF_VAR_db_password="YourSecurePassword123!"
+```
 | `http_port` | HTTP port for the web server | 8080 |
 | `db_username` | Database administrator username | dbadmin |
 | `db_password` | Database administrator password | (required) |
@@ -170,11 +222,87 @@ After SSH-ing into the instance, view the application logs:
 # View the application log
 sudo cat /var/log/webapi.log
 
+# Follow the log in real-time
+sudo tail -f /var/log/webapi.log
+
 # Check if the application is running
 ps aux | grep dotnet
 
 # Check the port is listening
 sudo netstat -tuln | grep 8080
+# Or use ss
+sudo ss -tlnp | grep 8080
+```
+
+### Troubleshooting: Log File Not Found
+
+If `/var/log/webapi.log` doesn't exist, the application may not have started:
+
+```bash
+# Check if dotnet is running
+ps aux | grep dotnet
+
+# Check cloud-init logs to see if user_data script ran
+sudo cat /var/log/cloud-init-output.log
+
+# Try to start the application manually
+cd /home/ec2-user/webapi
+export DB_HOST=$(echo $DB_HOST)
+export DB_NAME=$(echo $DB_NAME)
+export DB_USER=$(echo $DB_USER)
+export AWS_REGION=$(echo $AWS_REGION)
+
+# If variables are not set, get them from Terraform
+# DB_HOST should be the RDS endpoint from: terraform output db_endpoint
+
+# Run the application in foreground to see errors
+dotnet run
+
+# Or run in background and create the log
+nohup dotnet run > /var/log/webapi.log 2>&1 &
+```
+
+## Connecting to the Database
+
+### From the Application
+The .NET application automatically uses IAM authentication:
+- Retrieves temporary auth tokens from AWS
+- Tokens are valid for 15 minutes and refreshed automatically
+- No credentials stored in code or environment variables
+
+### Manual Connection with IAM Auth
+
+To connect using IAM authentication from the EC2 instance:
+
+```bash
+# SSH into the instance
+ssh -i ec2-key ec2-user@<PUBLIC_IP>
+
+# Generate IAM auth token (valid for 15 minutes)
+TOKEN=$(aws rds generate-db-auth-token \
+  --hostname <DB_ENDPOINT> \
+  --port 5432 \
+  --region eu-central-1 \
+  --username dbadmin)
+
+# Connect using the token
+psql "host=<DB_ENDPOINT> dbname=catalogdb user=dbadmin password=$TOKEN sslmode=require"
+
+# Example queries
+SELECT * FROM products;
+INSERT INTO products (name) VALUES ('New Product');
+```
+
+### Initial Setup Connection (Password-based)
+
+For initial database setup, the master password is used:
+
+```bash
+# Get the database endpoint from Terraform output
+terraform output db_endpoint
+
+# Connect with password (for admin tasks)
+PGPASSWORD='your-password' psql -h <DB_ENDPOINT> -U dbadmin -d catalogdb
 ```
 
 ### Troubleshooting: .NET Not Installed
@@ -215,9 +343,12 @@ Type `yes` when prompted to confirm.
 
 ⚠️ **Important Security Considerations:**
 
-1. **SSH Key:** Never commit `ec2-key` (private key) to version control. Add it to `.gitignore`.
-2. **Security Group:** The current configuration allows SSH and HTTP from any IP (`0.0.0.0/0`). For production, restrict to specific IP ranges.
-3. **Sensitive Variables:** Use environment variables or AWS Secrets Manager for sensitive data like `db_password`.
+1. **IAM Authentication**: Database access uses IAM authentication with temporary tokens (15-minute validity), eliminating the need for long-lived database credentials in the application.
+2. **SSH Key**: Never commit `ec2-key` (private key) to version control. Add it to `.gitignore`.
+3. **Security Group**: The current configuration allows SSH and HTTP from any IP (`0.0.0.0/0`). For production, restrict to specific IP ranges.
+4. **Database Password**: Only used for initial setup. The application never uses the master password.
+5. **SSL/TLS**: All database connections use SSL encryption.
+6. **IAM Roles**: EC2 instance uses IAM roles instead of access keys for AWS API calls.
 
 ## Region
 
