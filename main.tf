@@ -2,6 +2,11 @@ provider "aws" {
   region = "eu-central-1"
 }
 
+# Get the latest Amazon Linux 2023 AMI from AWS Systems Manager Parameter Store
+data "aws_ssm_parameter" "al2023_ami" {
+  name = "/aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64"
+}
+
 resource "aws_key_pair" "ec2_key" {
   key_name   = "ec2-key"
   public_key = file("${path.module}/ec2-key.pub")
@@ -40,7 +45,7 @@ resource "aws_security_group" "web_server" {
 }
 
 resource "aws_instance" "example" {
-  ami           = "ami-0f2367292005b3bad"
+  ami           = data.aws_ssm_parameter.al2023_ami.value
   instance_type = "t2.micro"
   key_name      = aws_key_pair.ec2_key.key_name
   vpc_security_group_ids = [aws_security_group.web_server.id]
@@ -75,9 +80,7 @@ resource "aws_instance" "example" {
   
   user_data = <<-EOF
     #!/bin/bash
-    # Install .NET 10 SDK
-    sudo rpm -Uvh https://packages.microsoft.com/config/centos/7/packages-microsoft-prod.rpm
-    sudo yum install -y dotnet-sdk-10.0
+    sudo dnf install dotnet-sdk-9.0 -y
     
     # Wait for files to be provisioned
     sleep 10
@@ -113,67 +116,67 @@ resource "aws_subnet" "db_subnet_1" {
   }
 }
 
-resource "aws_subnet" "db_subnet_2" {
-  vpc_id            = data.aws_vpc.default.id
-  cidr_block        = "172.31.144.0/20"
-  availability_zone = data.aws_availability_zones.available.names[1]
+# resource "aws_subnet" "db_subnet_2" {
+#   vpc_id            = data.aws_vpc.default.id
+#   cidr_block        = "172.31.144.0/20"
+#   availability_zone = data.aws_availability_zones.available.names[1]
 
-  tags = {
-    Name = "db-subnet-2"
-  }
-}
+#   tags = {
+#     Name = "db-subnet-2"
+#   }
+# }
 
-resource "aws_db_subnet_group" "postgres" {
-  name       = "postgres-subnet-group"
-  subnet_ids = [aws_subnet.db_subnet_1.id, aws_subnet.db_subnet_2.id]
+# resource "aws_db_subnet_group" "postgres" {
+#   name       = "postgres-subnet-group"
+#   subnet_ids = [aws_subnet.db_subnet_1.id, aws_subnet.db_subnet_2.id]
 
-  tags = {
-    Name = "postgres-subnet-group"
-  }
-}
+#   tags = {
+#     Name = "postgres-subnet-group"
+#   }
+# }
 
-resource "aws_security_group" "rds" {
-  name        = "rds-postgres-sg"
-  description = "Allow PostgreSQL traffic from web server"
+# resource "aws_security_group" "rds" {
+#   name        = "rds-postgres-sg"
+#   description = "Allow PostgreSQL traffic from web server"
 
-  ingress {
-    description     = "PostgreSQL from web server"
-    from_port       = 5432
-    to_port         = 5432
-    protocol        = "tcp"
-    security_groups = [aws_security_group.web_server.id]
-  }
+#   ingress {
+#     description     = "PostgreSQL from web server"
+#     from_port       = 5432
+#     to_port         = 5432
+#     protocol        = "tcp"
+#     security_groups = [aws_security_group.web_server.id]
+#   }
 
-  egress {
-    from_port   = 0
-    to_port     = 0
-    protocol    = "-1"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
+#   egress {
+#     from_port   = 0
+#     to_port     = 0
+#     protocol    = "-1"
+#     cidr_blocks = ["0.0.0.0/0"]
+#   }
 
-  tags = {
-    Name = "rds-postgres-sg"
-  }
-}
+#   tags = {
+#     Name = "rds-postgres-sg"
+#   }
+# }
 
-resource "aws_db_instance" "postgres" {
-  identifier           = "postgres-db"
-  engine              = "postgres"
-  engine_version      = "16"
-  instance_class      = "db.t3.micro"
-  allocated_storage   = 20
-  storage_type        = "gp2"
+# resource "aws_db_instance" "postgres" {
+#   identifier           = "postgres-db"
+#   engine              = "postgres"
+#   engine_version      = "16"
+#   instance_class      = "db.t3.micro"
+#   allocated_storage   = 20
+#   storage_type        = "gp2"
   
-  db_name             = "catalogdb"
-  username            = var.db_username
-  password            = var.db_password
+#   db_name             = "catalogdb"
+#   username            = var.db_username
+#   password            = var.db_password
   
-  db_subnet_group_name   = aws_db_subnet_group.postgres.name
-  vpc_security_group_ids = [aws_security_group.rds.id]
-  publicly_accessible    = true
-  skip_final_snapshot    = true
+#   db_subnet_group_name   = aws_db_subnet_group.postgres.name
+#   vpc_security_group_ids = [aws_security_group.rds.id]
+#   publicly_accessible    = true
+#   skip_final_snapshot    = true
   
-  tags = {
-    Name = "postgres-db"
-  }
-}
+#   tags = {
+#     Name = "postgres-db"
+#   }
+# }

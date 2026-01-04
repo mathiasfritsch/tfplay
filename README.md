@@ -5,10 +5,11 @@ This project provisions an AWS EC2 instance using Terraform and deploys a simple
 ## Overview
 
 The infrastructure includes:
-- AWS EC2 instance (t2.micro) running Amazon Linux
+- AWS EC2 instance (t2.micro) running Amazon Linux 2023
 - Security group allowing HTTP traffic on port 8080 and SSH on port 22
 - SSH key pair for secure access
-- Automated deployment of a .NET 10 Web API
+- Automated deployment of a .NET 9 Web API
+- Latest AMI automatically retrieved from AWS Systems Manager Parameter Store
 
 ## Prerequisites
 
@@ -175,6 +176,30 @@ ps aux | grep dotnet
 # Check the port is listening
 sudo netstat -tuln | grep 8080
 ```
+
+### Troubleshooting: .NET Not Installed
+
+If you see `nohup: failed to run command 'dotnet': No such file or directory`, .NET wasn't installed. Manually install and run:
+
+```bash
+# Install .NET 9 SDK (Amazon Linux 2023)
+sudo dnf install -y dotnet-sdk-9.0
+
+# Verify installation
+dotnet --version
+
+# Navigate to the app directory
+cd /home/ec2-user/webapi
+
+# Build and run the application
+dotnet build
+nohup dotnet run > /var/log/webapi.log 2>&1 &
+
+# Check if it's running
+curl http://localhost:8080/
+```
+
+You can now access the API from your browser at `http://<PUBLIC_IP>:8080`
 
 ## Cleanup
 
