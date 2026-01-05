@@ -15,6 +15,94 @@ The infrastructure includes:
 - Latest AMI automatically retrieved from AWS Systems Manager Parameter Store
 - Database initialization with products table and sample data
 
+## Architecture Diagram
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                           AWS Cloud (eu-central-1)                  │
+│                                                                     │
+│  ┌───────────────────────────────────────────────────────────────┐ │
+│  │                    Default VPC (172.31.0.0/16)                │ │
+│  │                                                               │ │
+│  │  ┌─────────────────────────────────────────────────────┐     │ │
+│  │  │  Public Subnet                                      │     │ │
+│  │  │                                                     │     │ │
+│  │  │  ┌──────────────────────────────────────────────┐  │     │ │
+│  │  │  │   EC2 Instance (t2.micro)                   │  │     │ │
+│  │  │  │   Amazon Linux 2023                         │  │     │ │
+│  │  │  │                                             │  │     │ │
+│  │  │  │   ┌──────────────────────────────────┐     │  │     │ │
+│  │  │  │   │   .NET 9 Web API                │     │  │     │ │
+│  │  │  │   │   Port: 8080                    │     │  │     │ │
+│  │  │  │   │   - GET  /                      │     │  │     │ │
+│  │  │  │   │   - GET  /health                │     │  │     │ │
+│  │  │  │   │   - GET  /products              │     │  │     │ │
+│  │  │  │   │   - POST /products              │     │  │     │ │
+│  │  │  │   └──────────────────────────────────┘     │  │     │ │
+│  │  │  │                                             │  │     │ │
+│  │  │  │   IAM Instance Profile:                    │  │     │ │
+│  │  │  │   ec2-rds-instance-profile                 │  │     │ │
+│  │  │  │   (rds-db:connect permission)              │  │     │ │
+│  │  │  └──────────────────────────────────────────────┘  │     │ │
+│  │  │                         │                           │     │ │
+│  │  │    Security Group: web-server-sg                   │     │ │
+│  │  │    ├─ Ingress: 0.0.0.0/0 → :8080 (HTTP)            │     │ │
+│  │  │    ├─ Ingress: 0.0.0.0/0 → :22 (SSH)               │     │ │
+│  │  │    └─ Egress: All traffic                          │     │ │
+│  │  └─────────────────────────────────────────────────────┘     │ │
+│  │                                                               │ │
+│  │  ┌─────────────────────────────────────────────────────┐     │ │
+│  │  │  DB Subnet Group (172.31.128.0/20, .144.0/20)      │     │ │
+│  │  │  Availability Zones: AZ1 + AZ2                     │     │ │
+│  │  │                                                     │     │ │
+│  │  │  ┌──────────────────────────────────────────────┐  │     │ │
+│  │  │  │   RDS PostgreSQL (db.t3.micro)              │  │     │ │
+│  │  │  │   Engine: PostgreSQL 16                     │  │     │ │
+│  │  │  │   Database: catalogdb                       │  │     │ │
+│  │  │  │   Storage: 20 GB GP2                        │  │     │ │
+│  │  │  │                                             │  │     │ │
+│  │  │  │   Table: products                           │  │     │ │
+│  │  │  │   - id (SERIAL)                             │  │     │ │
+│  │  │  │   - name (VARCHAR)                          │  │     │ │
+│  │  │  │   - created_at (TIMESTAMP)                  │  │     │ │
+│  │  │  │                                             │  │     │ │
+│  │  │  │   IAM Auth: ✓ Enabled                       │  │     │ │
+│  │  │  │   SSL/TLS: ✓ Required                       │  │     │ │
+│  │  │  └──────────────────────────────────────────────┘  │     │ │
+│  │  │                         ▲                           │     │ │
+│  │  │    Security Group: rds-postgres-sg                 │     │ │
+│  │  │    └─ Ingress: web-server-sg → :5432 (PostgreSQL)  │     │ │
+│  │  └─────────────────────────────────────────────────────┘     │ │
+│  │                                                               │ │
+│  └───────────────────────────────────────────────────────────────┘ │
+│                                                                     │
+│  ┌───────────────────────────────────────────────────────────────┐ │
+│  │  IAM Role: ec2-rds-iam-role                                  │ │
+│  │  └─ Policy: rds-iam-auth-policy                              │ │
+│  │     └─ Action: rds-db:connect                                │ │
+│  │        Resource: arn:aws:rds-db:*:dbuser:*/dbadmin           │ │
+│  └───────────────────────────────────────────────────────────────┘ │
+│                                                                     │
+└─────────────────────────────────────────────────────────────────────┘
+          ▲                                      
+          │ HTTP :8080 (API requests)            
+          │ SSH :22 (admin access)               
+          │                                      
+    ┌─────┴──────┐                              
+    │   Client   │                              
+    │  (Browser/ │                              
+    │    curl)   │                              
+    └────────────┘                              
+
+Data Flow:
+1. Client sends HTTP request to EC2:8080
+2. .NET API receives request
+3. API generates IAM auth token via AWS SDK (valid 15 min)
+4. API connects to RDS PostgreSQL with token over SSL/TLS
+5. Query executes on products table
+6. Response returns through API to client
+```
+
 ## Prerequisites
 
 - [Terraform](https://www.terraform.io/downloads.html) >= 1.0.0
